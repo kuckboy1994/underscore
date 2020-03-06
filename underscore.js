@@ -10,6 +10,7 @@
   // Establish the root object, `window` (`self`) in the browser, `global`
   // on the server, or `this` in some virtual machines. We use `self`
   // instead of `window` for `WebWorker` support.
+  // 用root保存全局对象
   var root =
     (typeof self == "object" && self.self === self && self) ||
     (typeof global == "object" && global.global === global && global) ||
@@ -17,9 +18,11 @@
     {};
 
   // Save the previous value of the `_` variable.
+  // 保存 underscore 初始化之前 underscore的值，用于后期重置
   var previousUnderscore = root._;
 
   // Save bytes in the minified (but not gzipped) version:
+  // 方便获取原型上的方法
   var ArrayProto = Array.prototype,
     ObjProto = Object.prototype;
   var SymbolProto = typeof Symbol !== "undefined" ? Symbol.prototype : null;
@@ -37,10 +40,13 @@
     nativeCreate = Object.create;
 
   // Naked function reference for surrogate-prototype-swapping.
+  // 基础构造函数，有点类似变量池，创建一个什么原型的对象，就设置prototype，new成功之后，设置回null
   var Ctor = function() {};
 
   // Create a safe reference to the Underscore object for use below.
+  // 创建对Underscore对象的安全引用，以供下面使用。
   var _ = function(obj) {
+    // console.log(obj instanceof _);
     if (obj instanceof _) return obj;
     if (!(this instanceof _)) return new _(obj);
     this._wrapped = obj;
@@ -51,6 +57,7 @@
   // the browser, add `_` as a global object.
   // (`nodeType` is checked to ensure that `module`
   // and `exports` are not HTML elements.)
+  // dom元素会存在 nodeType 属性
   if (typeof exports != "undefined" && !exports.nodeType) {
     if (typeof module != "undefined" && !module.nodeType && module.exports) {
       exports = module.exports = _;
@@ -66,6 +73,8 @@
   // Internal function that returns an efficient (for current engines) version
   // of the passed-in callback, to be repeatedly applied in other Underscore
   // functions.
+  // 返回一个 “绑定” context 上下文的函数。
+  // TODO 为什么不用bind
   var optimizeCb = function(func, context, argCount) {
     if (context === void 0) return func;
     switch (argCount == null ? 3 : argCount) {
@@ -88,11 +97,10 @@
     };
   };
 
+  // 内置的迭代器
   var builtinIteratee;
 
-  // An internal function to generate callbacks that can be applied to each
-  // element in a collection, returning the desired result — either `identity`,
-  // an arbitrary callback, a property matcher, or a property accessor.
+  // An internal function to generate callbacks that can be applied to each element in a collection, returning the desired result either `identity`, an arbitrary callback, a property matcher, or a property accessor.
   var cb = function(value, context, argCount) {
     if (_.iteratee !== builtinIteratee) return _.iteratee(value, context);
     if (value == null) return _.identity;
@@ -104,6 +112,7 @@
   // External wrapper for our callback generator. Users may customize
   // `_.iteratee` if they want additional predicate/iteratee shorthand styles.
   // This abstraction hides the internal-only argCount argument.
+  // _.iteratee 是对外暴露的，用户可以修改次迭代函数，会替代 cb 的默认的内置迭代器
   _.iteratee = builtinIteratee = function(value, context) {
     return cb(value, context, Infinity);
   };
@@ -149,16 +158,22 @@
     return result;
   };
 
+  // 返回一个 获取某个属性的 函数，函数的参数为对象
+  // 如果参数不是对象或者为null 则返回 undefined
   var shallowProperty = function(key) {
     return function(obj) {
       return obj == null ? void 0 : obj[key];
     };
   };
 
+  // 判断path是否是obj的原生属性
   var has = function(obj, path) {
     return obj != null && hasOwnProperty.call(obj, path);
   };
 
+  // 按 path 的顺序去获取 obj 上的属性的值
+  // 等价于 obj[path[0]][path[1]][...]...
+  // 这样写的好处是不会因为 obj对象 不符个规则，而导致报错
   var deepGet = function(obj, path) {
     var length = path.length;
     for (var i = 0; i < length; i++) {
@@ -172,6 +187,12 @@
   // should be iterated as an array or as an object.
   // Related: https://people.mozilla.org/~jorendorff/es6-draft.html#sec-tolength
   // Avoids a very nasty iOS 8 JIT bug on ARM-64. #2094
+  // 在 IOS8 64位 上存在一个bug
+  // 会在一个类似这样的对象
+  // `foo = { 3:'c'}`
+  // 对象上存在一个length属性，为 最大下标+1，可能不是自身属性。
+  // 当做遍历的时候导致 foo[0，1，2]不存在
+  // https://www.newsmth.net/nForum/#!article/WebDev/36711
   var MAX_ARRAY_INDEX = Math.pow(2, 53) - 1;
   var getLength = shallowProperty("length");
   var isArrayLike = function(collection) {
@@ -185,10 +206,15 @@
   // --------------------
 
   // The cornerstone, an `each` implementation, aka `forEach`.
-  // Handles raw objects in addition to array-likes. Treats all
-  // sparse array-likes as if they were dense.
+  // Handles raw objects in addition to array-likes.
+  // 处理类似数组的原始对象。
+  // Treats all sparse array-likes as if they were dense.
+  // 将所有稀疏数组状对象视为密集对象。
+  // 可以在 iteratee函数 中使用 context的方法和属性
+  // 如果是类数组就通过下标来循环，否则通过Object.keys 获取 key 数组来循环
   _.each = _.forEach = function(obj, iteratee, context) {
     iteratee = optimizeCb(iteratee, context);
+    // console.log(iteratee);
     var i, length;
     if (isArrayLike(obj)) {
       for (i = 0, length = obj.length; i < length; i++) {
@@ -204,11 +230,13 @@
   };
 
   // Return the results of applying the iteratee to each element.
+  // obj 可以使 【数组 对象 字符串 函数】,返回 iteratee 返回的集合
   _.map = _.collect = function(obj, iteratee, context) {
     iteratee = cb(iteratee, context);
     var keys = !isArrayLike(obj) && _.keys(obj),
       length = (keys || obj).length,
       results = Array(length);
+    console.log(keys, length, results);
     for (var index = 0; index < length; index++) {
       var currentKey = keys ? keys[index] : index;
       results[index] = iteratee(obj[currentKey], currentKey, obj);
@@ -217,9 +245,9 @@
   };
 
   // Create a reducing function iterating left or right.
+  // TODO 太高级！
   var createReduce = function(dir) {
-    // Wrap code that reassigns argument variables in a separate function than
-    // the one that accesses `arguments.length` to avoid a perf hit. (#1991)
+    // Wrap code that reassigns argument variables in a separate function thanthe one that accesses `arguments.length` to avoid a perf hit. (#1991)
     var reducer = function(obj, iteratee, memo, initial) {
       var keys = !isArrayLike(obj) && _.keys(obj),
         length = (keys || obj).length,
@@ -1024,6 +1052,7 @@
   // ----------------
 
   // Keys in IE < 9 that won't be iterated by `for key in ...` and thus missed.
+  // IE <9中的键不会被`for key in ...`迭代，因此会丢失。
   var hasEnumBug = !{ toString: null }.propertyIsEnumerable("toString");
   var nonEnumerableProps = [
     "valueOf",
@@ -1060,6 +1089,7 @@
     var keys = [];
     for (var key in obj) if (has(obj, key)) keys.push(key);
     // Ahem, IE < 9.
+    // 啊咳，咳嗽或清嗓子的声音 🤦‍♀️
     if (hasEnumBug) collectNonEnumProps(obj, keys);
     return keys;
   };
@@ -1314,7 +1344,8 @@
           _.isFunction(bCtor) &&
           bCtor instanceof bCtor
         ) &&
-        "constructor" in a && "constructor" in b
+        "constructor" in a &&
+        "constructor" in b
       ) {
         return false;
       }
@@ -1494,17 +1525,20 @@
 
   // Run Underscore.js in *noConflict* mode, returning the `_` variable to its
   // previous owner. Returns a reference to the Underscore object.
+  // 调用当前函数，会重置 underscore 的值。 返回this没有太大的意义
   _.noConflict = function() {
     root._ = previousUnderscore;
     return this;
   };
 
   // Keep the identity function around for default iteratees.
+  // 返回传入的内容
   _.identity = function(value) {
     return value;
   };
 
   // Predicate-generating functions. Often useful outside of Underscore.
+  // 返回一个 返回传入内容的函数 的函数
   _.constant = function(value) {
     return function() {
       return value;
@@ -1515,6 +1549,7 @@
 
   // Creates a function that, when passed an object, will traverse that object’s
   // properties down the given `path`, specified as an array of keys or indexes.
+  // 返回一个获取 某个属性的 函数。支持数组传参
   _.property = function(path) {
     if (!_.isArray(path)) {
       return shallowProperty(path);
@@ -1552,15 +1587,19 @@
   };
 
   // Return a random integer between min and max (inclusive).
+  // 改写的话 有点冗余。。
   _.random = function(min, max) {
     if (max == null) {
       max = min;
       min = 0;
     }
     return min + Math.floor(Math.random() * (max - min + 1));
+    // return min - 1 + Math.ceil(Math.random() * (max - min + 1));
   };
 
   // A (possibly faster) way to get the current timestamp as an integer.
+  // Date.now() 速度更开，但是运行一万次相差毫秒级，基本上忽略不计。
+  // +new Date() 可以返回相同的内容 原理是调用了 .valueOf() 方法 类似于转换成number类型
   _.now =
     Date.now ||
     function() {
